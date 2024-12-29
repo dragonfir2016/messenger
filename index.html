@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Чат на Rust WebSocket</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f0f2f5;
+    }
+    header {
+      background: #4caf50;
+      color: white;
+      text-align: center;
+      font-size: 1.5rem;
+      padding: 1rem;
+      margin-bottom: 2rem;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .auth-section,
+    .chat-section {
+      margin-bottom: 1rem;
+    }
+
+    .auth-form {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      margin: 0.5rem 0;
+    }
+    .auth-form input {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      flex: 1 1 150px;
+    }
+    .auth-form button {
+      padding: 0.5rem 1rem;
+      border: none;
+      background: #4caf50;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .auth-form button:hover {
+      background: #388e3c;
+    }
+
+    .chat-section {
+      display: none;
+    }
+    .messages {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fafafa;
+      padding: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .messages .message {
+      margin: 0.25rem 0;
+      padding: 0.25rem;
+    }
+    .input-field {
+      display: flex;
+    }
+    .input-field input {
+      flex: 1;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px 0 0 4px;
+      outline: none;
+    }
+    .input-field button {
+      border: none;
+      background: #4caf50;
+      color: #fff;
+      padding: 0.5rem 1rem;
+      border-radius: 0 4px 4px 0;
+      cursor: pointer;
+    }
+    .input-field button:hover {
+      background: #388e3c;
+    }
+
+    .note {
+      font-size: 0.9rem;
+      color: #555;
+      margin-top: 1rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>Додаток для спілкування в реальному часі</header>
+
+  <div class="container">
+    <section class="auth-section">
+      <h2>Увійти / Зареєструватися</h2>
+      <div class="auth-form">
+        <input type="text" id="username" placeholder="Ім'я користувача" />
+        <input type="password" id="password" placeholder="Пароль" />
+      </div>
+      <div class="auth-form">
+        <button id="register">Зареєструватися</button>
+        <button id="login">Увійти</button>
+      </div>
+    </section>
+
+    <section class="chat-section" id="chat">
+      <h2>Чат</h2>
+      <div class="messages" id="messages"></div>
+      <div class="input-field">
+        <input type="text" id="input" placeholder="Введіть повідомлення..." autofocus />
+        <button id="sendMessage">Надіслати</button>
+      </div>
+    </section>
+  </div>
+
+  <p class="note">
+    Введіть свої облікові дані, натисніть «Зареєструватися» або «Увійти», і почніть спілкування!
+  </p>
+
+  <script>
+    let ws;
+    let currentUsername = '';
+
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const registerBtn = document.getElementById('register');
+    const loginBtn = document.getElementById('login');
+    const chatDiv = document.getElementById('chat');
+    const messagesDiv = document.getElementById('messages');
+    const input = document.getElementById('input');
+    const sendMessageBtn = document.getElementById('sendMessage');
+
+    function showChat() {
+      chatDiv.style.display = 'block';
+    }
+
+    registerBtn.onclick = async () => {
+      const response = await fetch('http://127.0.0.1:8080/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: usernameInput.value,
+          password: passwordInput.value
+        }),
+      });
+      alert(await response.text());
+    };
+
+    loginBtn.onclick = async () => {
+      const response = await fetch('http://127.0.0.1:8080/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: usernameInput.value,
+          password: passwordInput.value
+        }),
+      });
+      if (response.ok) {
+        alert("Успішний вхід");
+        currentUsername = usernameInput.value;
+        initializeWebSocket();
+        showChat();
+      } else {
+        alert(await response.text());
+      }
+    };
+
+    function initializeWebSocket() {
+      ws = new WebSocket('ws://127.0.0.1:8080/ws');
+
+      ws.onopen = () => {
+        console.log('З’єднання WebSocket встановлено');
+      };
+
+      ws.onmessage = (event) => {
+        displayMessage(event.data);
+      };
+
+      ws.onerror = (error) => {
+        console.error('Помилка WebSocket:', error);
+        alert('З’єднання WebSocket не вдалося.');
+      };
+
+      ws.onclose = () => {
+        console.log('З’єднання WebSocket закрито');
+        alert('З’єднання WebSocket закрито.');
+      };
+    }
+
+    function displayMessage(msg) {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message');
+      messageDiv.textContent = msg;
+      messagesDiv.appendChild(messageDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && input.value) {
+        sendMessage();
+      }
+    });
+
+    sendMessageBtn.addEventListener('click', () => {
+      if (input.value) {
+        sendMessage();
+      }
+    });
+
+    function sendMessage() {
+      const messageToSend = currentUsername
+        ? `${currentUsername}: ${input.value}`
+        : input.value;
+
+      ws.send(messageToSend);
+      input.value = '';
+    }
+  </script>
+</body>
+</html>
